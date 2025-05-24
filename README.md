@@ -90,3 +90,8 @@ output_txt: saving output to '/Users/ale/Library/Application Support/com.lala.ap
   
 - make sure you insert the transcription into the clipboard when the recording is stopped
   and emit a notification.
+  
+- use context7 for documentation: 
+   - tauri: `/tauri-apps/tauri-docs`
+   - tauri rust crate: `https://docs.rs/tauri/latest/tauri/`
+   - tauri-plugin-mic-recorder: `https://github.com/ayangweb/tauri-plugin-mic-recorder`
