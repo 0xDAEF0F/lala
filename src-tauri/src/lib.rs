@@ -1,8 +1,12 @@
 #![allow(unused)]
 
+use colored::Colorize as _;
+use env_logger::fmt::Formatter;
+use log::LevelFilter;
 use tap::Tap;
 use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
+use tauri_plugin_log::{LogLevel, TimezoneStrategy};
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
 use tauri_plugin_notification::NotificationExt as _;
 
@@ -14,6 +18,35 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
+		.plugin(
+			tauri_plugin_log::Builder::new()
+				.level(LevelFilter::Warn)
+				.level_for("lala_lib", LevelFilter::Info)
+				.format(|cb, args, record| {
+					use env_logger::fmt::style;
+					let style = match record.level() {
+						log::Level::Trace => style::AnsiColor::Cyan.on_default(),
+						log::Level::Debug => style::AnsiColor::Blue.on_default(),
+						log::Level::Info => style::AnsiColor::Green.on_default(),
+						log::Level::Warn => style::AnsiColor::Yellow.on_default(),
+						log::Level::Error => style::AnsiColor::Red
+							.on_default()
+							.effects(style::Effects::BOLD),
+					};
+					cb.finish(format_args!(
+						"[{}] [{style}{}{style:#}] [{}]: {}",
+						chrono::Local::now()
+							.format("%I:%M:%S%p")
+							.to_string()
+							.yellow()
+							.dimmed(),
+						record.level(),
+						record.target(),
+						record.args()
+					));
+				})
+				.build(),
+		)
 		.plugin(tauri_plugin_clipboard_manager::init())
 		.plugin(tauri_plugin_mic_recorder::init())
 		.plugin(tauri_plugin_notification::init())
@@ -25,18 +58,17 @@ pub fn run() {
 					Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
 				};
 
-				let ctrl_n_shortcut = dbg!(Shortcut::new(None, Code::F2));
+				let f2_shortcut = Shortcut::new(None, Code::F2);
 				app.handle().plugin(
 					tauri_plugin_global_shortcut::Builder::new()
 						.with_handler(move |_app, shortcut, event| {
-							println!("shortcut: {:?}", shortcut);
-							if shortcut == &ctrl_n_shortcut {
+							if shortcut == &f2_shortcut {
 								match event.state() {
 									ShortcutState::Pressed => {
-										println!("Ctrl-N Pressed!");
+										log::info!("Ctrl-N Pressed!");
 									}
 									ShortcutState::Released => {
-										println!("Ctrl-N Released!");
+										log::info!("Ctrl-N Released!");
 									}
 								}
 							}
@@ -44,7 +76,7 @@ pub fn run() {
 						.build(),
 				)?;
 
-				app.global_shortcut().register(ctrl_n_shortcut)?;
+				app.global_shortcut().register(f2_shortcut)?;
 			}
 
 			app.clipboard().write_text("gotchuuu")?;
