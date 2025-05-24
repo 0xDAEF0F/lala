@@ -1,3 +1,6 @@
+use tauri_plugin_clipboard_manager::ClipboardExt as _;
+use tauri_plugin_notification::NotificationExt as _;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
 	format!("Hello, {}! You've been greeted from Rust!", name)
@@ -6,10 +9,12 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
+		.plugin(tauri_plugin_clipboard_manager::init())
 		.plugin(tauri_plugin_notification::init())
 		.plugin(tauri_plugin_opener::init())
 		.setup(|app| {
-			use tauri_plugin_notification::NotificationExt;
+			app.clipboard().write_text("gotchuuu")?;
+
 			app.notification()
 				.builder()
 				.title("Tauri")
