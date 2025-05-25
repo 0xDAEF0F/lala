@@ -26,8 +26,13 @@ pub fn run() {
 		.plugin(tauri_plugin_mic_recorder::init())
 		.plugin(tauri_plugin_notification::init())
 		.plugin(tauri_plugin_opener::init())
-		.setup(|app| shortcuts::setup_shortcuts(app))
-		.setup(|app| tray_icon::setup_tray_icon(app))
+		.setup(|app| {
+			#[cfg(target_os = "macos")]
+			app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+			shortcuts::setup_shortcuts(app)?;
+			tray_icon::setup_tray_icon(app)?;
+			Ok(())
+		})
 		.invoke_handler(tauri::generate_handler![])
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
