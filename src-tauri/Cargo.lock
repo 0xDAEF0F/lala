@@ -2362,8 +2362,10 @@ dependencies = [
 name = "lala"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "colored",
+ "dirs",
  "env_logger",
  "log",
  "serde",
