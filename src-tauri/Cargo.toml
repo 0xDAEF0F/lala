@@ -37,6 +37,7 @@ anyhow = "1.0.98"
 iter_tools = "0.29.0"
 tokio-stream = { version = "0.1.17", features = ["full"] }
 dotenvy = "0.15.7"
+enigo = "0.3.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
