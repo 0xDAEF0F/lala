@@ -1,5 +1,4 @@
-use crate::process_transcription;
-use anyhow::{ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use std::{path::PathBuf, time::UNIX_EPOCH};
 use tokio::process::Command;
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
@@ -81,5 +80,25 @@ pub async fn transcribe_audio(wav_path: PathBuf) -> Result<String> {
 
 	log::debug!("Raw stdout: {stdout}");
 
-	Ok(process_transcription(stdout))
+	cleanse_transcription(stdout)
+}
+
+fn cleanse_transcription(raw_text: &str) -> Result<String> {
+	Ok(raw_text
+		.lines()
+		.map(|line| {
+			// line must contain timestamp pattern [HH:MM:SS.mmm --> HH:MM:SS.mmm]
+			if let Some(idx) = line.find(']') {
+				Ok(line[idx + 1..].trim().to_string())
+			} else {
+				bail!(
+					"Corrupted transcription line, missing ']' timestamp delimiter: {}",
+					line
+				)
+			}
+		})
+		.collect::<Result<Vec<String>>>()?
+		.join(" ")
+		.trim()
+		.to_owned())
 }

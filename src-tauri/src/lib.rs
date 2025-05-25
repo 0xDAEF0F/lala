@@ -5,38 +5,14 @@ mod notifs;
 mod utils;
 
 use anyhow::Result;
-use iter_tools::Itertools;
 use notifs::Notif;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
-use tokio_stream::StreamExt;
 use utils::{get_latest_wav_file, transcribe_audio};
 
 // Global state to track if recording is in progress
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
-
-
-// Add a new function to process the transcription
-fn process_transcription(raw_text: &str) -> String {
-	// Split by lines and process each line
-	raw_text
-		.lines()
-		.map(|line| {
-			// Check if line contains timestamp pattern [HH:MM:SS.mmm --> HH:MM:SS.mmm]
-			if let Some(idx) = line.find(']') {
-				// Extract only the text part after the timestamp
-				line[idx + 1..].trim().to_string()
-			} else {
-				// If no timestamp format found, keep the line as is
-				line.trim().to_string()
-			}
-		})
-		.collect_vec()
-		.join(" ")
-		.trim()
-		.to_string()
-}
 
 fn async_task(app_handle: tauri::AppHandle) {
 	tauri::async_runtime::spawn(async move {
