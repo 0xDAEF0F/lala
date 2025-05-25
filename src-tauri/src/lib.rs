@@ -9,7 +9,7 @@ mod utils;
 use anyhow::{anyhow, Result};
 use notifs::Notif;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::AppHandle;
+use tauri::{ActivationPolicy, AppHandle};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
 use utils::transcribe_audio;
@@ -28,7 +28,7 @@ pub fn run() {
 		.plugin(tauri_plugin_opener::init())
 		.setup(|app| {
 			#[cfg(target_os = "macos")]
-			app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+			app.set_activation_policy(ActivationPolicy::Accessory);
 			shortcuts::setup_shortcuts(app)?;
 			tray_icon::setup_tray_icon(app)?;
 			Ok(())
