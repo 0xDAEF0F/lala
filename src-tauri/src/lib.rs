@@ -33,10 +33,10 @@ pub fn run() {
 
 fn start_async_task(app_handle: AppHandle) {
 	IS_RECORDING.store(true, Ordering::SeqCst);
-	log::trace!("Recording status false => {:?}", IS_RECORDING);
+	log::trace!("Recording status false => {IS_RECORDING:?}");
 	tauri::async_runtime::spawn(async move {
 		if let Err(e) = start_recording(app_handle.clone()).await {
-			log::error!("Failed to start recording: {:#}", e);
+			log::error!("Failed to start recording: {e:#}");
 			notifs::notify(app_handle, Notif::FailedToStartRecording);
 		}
 	});
@@ -44,10 +44,10 @@ fn start_async_task(app_handle: AppHandle) {
 
 fn stop_async_task(app_handle: AppHandle) {
 	IS_RECORDING.store(false, Ordering::SeqCst);
-	log::trace!("Recording status true => {:?}", IS_RECORDING);
+	log::trace!("Recording status true => {IS_RECORDING:?}");
 	tauri::async_runtime::spawn(async move {
 		if let Err(e) = stop_and_process_recording(app_handle.clone()).await {
-			log::error!("Recording processing failed: {:#}", e);
+			log::error!("Recording processing failed: {e:#}");
 			// todo: improve error handling
 			if e.to_string().contains("stop recording") {
 				notifs::notify(app_handle, Notif::FailedToStopRecording);
@@ -62,7 +62,7 @@ async fn stop_and_process_recording(app_handle: AppHandle) -> Result<()> {
 	let wav_path = stop_recording().await.map_err(|s| anyhow!(s))?;
 
 	log::trace!("Recording stopped successfully");
-	log::debug!("Processing WAV file: {:?}", wav_path);
+	log::debug!("Processing WAV file: {wav_path:?}");
 
 	let transcript = transcribe_audio(wav_path).await?;
 

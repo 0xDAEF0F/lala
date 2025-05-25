@@ -49,6 +49,6 @@ pub fn notify(app_handle: AppHandle, notification_type: Notif) {
 		.show()
 		.map_or_else(
 			|e| log::error!("Failed show notif: {e}"),
-			|_| log::trace!("Notif {:?}", notification_type),
+			|_| log::trace!("Notif {notification_type:?}"),
 		);
 }
