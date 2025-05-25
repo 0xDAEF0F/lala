@@ -1,23 +1,20 @@
-use colored::Colorize as _;
-use log::LevelFilter;
+mod logger;
+mod notifs;
+
+use iter_tools::Itertools;
+use notifs::Notif;
 use std::{
 	fs,
 	path::PathBuf,
-	process::Command,
 	sync::atomic::{AtomicBool, Ordering},
 	time::SystemTime,
 };
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
-use tauri_plugin_notification::NotificationExt as _;
+use tokio::process::Command;
 
 // Global state to track if recording is in progress
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-	format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 // Get the path to the most recently created WAV file
 fn get_latest_wav_file() -> anyhow::Result<PathBuf> {
@@ -73,7 +70,7 @@ async fn transcribe_audio(wav_path: PathBuf) -> anyhow::Result<String> {
 		wav_path.display()
 	);
 
-	let output = command.output()?;
+	let output = command.output().await?;
 
 	log::info!("Command exit status: {}", output.status);
 
@@ -81,7 +78,7 @@ async fn transcribe_audio(wav_path: PathBuf) -> anyhow::Result<String> {
 		// Extract error message
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		log::error!("Command stderr: {}", stderr);
-		return Err(anyhow::anyhow!("Whisper CLI failed: {}", stderr));
+		anyhow::bail!("Whisper CLI failed: {}", stderr);
 	}
 
 	// Extract transcription from stdout
@@ -112,7 +109,7 @@ async fn transcribe_audio(wav_path: PathBuf) -> anyhow::Result<String> {
 		}
 	}
 
-	Err(anyhow::anyhow!("Could not find or extract transcription"))
+	anyhow::bail!("Could not find or extract transcription")
 }
 
 // Add a new function to process the transcription
@@ -130,7 +127,7 @@ fn process_transcription(raw_text: &str) -> String {
 				line.trim().to_string()
 			}
 		})
-		.collect::<Vec<String>>()
+		.collect_vec()
 		.join(" ")
 		.trim()
 		.to_string()
@@ -139,35 +136,7 @@ fn process_transcription(raw_text: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
-		.plugin(
-			tauri_plugin_log::Builder::new()
-				.level(LevelFilter::Warn)
-				.level_for("lala_lib", LevelFilter::Info)
-				.format(|cb, args, record| {
-					use env_logger::fmt::style;
-					let style = match record.level() {
-						log::Level::Trace => style::AnsiColor::Cyan.on_default(),
-						log::Level::Debug => style::AnsiColor::Blue.on_default(),
-						log::Level::Info => style::AnsiColor::Green.on_default(),
-						log::Level::Warn => style::AnsiColor::Yellow.on_default(),
-						log::Level::Error => style::AnsiColor::Red
-							.on_default()
-							.effects(style::Effects::BOLD),
-					};
-					cb.finish(format_args!(
-						"[{}] [{style}{}{style:#}] [{}]: {}",
-						chrono::Local::now()
-							.format("%I:%M:%S%p")
-							.to_string()
-							.yellow()
-							.dimmed(),
-						record.level(),
-						record.target(),
-						record.args()
-					));
-				})
-				.build(),
-		)
+		.plugin(logger::init())
 		.plugin(tauri_plugin_clipboard_manager::init())
 		.plugin(tauri_plugin_mic_recorder::init())
 		.plugin(tauri_plugin_notification::init())
@@ -176,7 +145,7 @@ pub fn run() {
 			#[cfg(desktop)]
 			{
 				use tauri_plugin_global_shortcut::{
-					Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+					Code, GlobalShortcutExt, Shortcut, ShortcutState,
 				};
 
 				let f2_shortcut = Shortcut::new(None, Code::F2);
@@ -239,15 +208,11 @@ pub fn run() {
 																		};
 
 																	// Show notification
-																	let _ = app_handle.notification()
-																		.builder()
-																		.title("Transcription ready")
-																		.body(&display_text)
-																		.show();
-
-																	log::info!(
-																		"Transcription \
-																		 complete"
+																	notifs::notify(
+																		app_handle,
+																		Notif::TranscriptionReady(
+																			display_text,
+																		),
 																	);
 																}
 																Err(e) => {
@@ -256,40 +221,18 @@ pub fn run() {
 																		 failed: {}",
 																		e
 																	);
-																	let _ = app_handle
-																		.notification()
-																		.builder()
-																		.title(
-																			"Transcription \
-																			 failed",
-																		)
-																		.body(format!(
-																			"Error: {}",
-																			e
-																		))
-																		.show();
+																	notifs::notify(
+																		app_handle,
+																		Notif::TranscriptionFailed,
+																	);
 																}
 															}
 														}
 														Err(e) => {
-															log::error!(
-																"Failed to find WAV \
-																 file: {}",
-																e
+															notifs::notify(
+																app_handle,
+																Notif::TranscriptionFailed,
 															);
-															let _ = app_handle
-																.notification()
-																.builder()
-																.title(
-																	"Transcription \
-																	 failed",
-																)
-																.body(format!(
-																	"Could not find \
-																	 recording: {}",
-																	e
-																))
-																.show();
 														}
 													}
 												}
@@ -298,16 +241,10 @@ pub fn run() {
 														"Failed to stop recording: {}",
 														e
 													);
-													let _ = app_handle
-														.notification()
-														.builder()
-														.title("Recording error")
-														.body(format!(
-															"Failed to stop recording: \
-															 {}",
-															e
-														))
-														.show();
+													notifs::notify(
+														app_handle,
+														Notif::FailedToStopRecording,
+													);
 												}
 											}
 										});
@@ -323,42 +260,20 @@ pub fn run() {
 													.await
 												{
 													Ok(_) => {
-														log::info!(
-															"Recording started \
-															 successfully"
-														);
 														IS_RECORDING.store(
 															true,
 															Ordering::SeqCst,
 														);
-
-														// Show notification
-														let _ = app_handle_notify
-															.notification()
-															.builder()
-															.title("Recording")
-															.body(
-																"Recording started. \
-																 Press F2 again to stop.",
-															)
-															.show();
+														notifs::notify(
+															app_handle_notify,
+															Notif::RecordingStart,
+														);
 													}
 													Err(e) => {
-														log::error!(
-															"Failed to start recording: \
-															 {}",
-															e
+														notifs::notify(
+															app_handle_notify,
+															Notif::FailedToStartRecording,
 														);
-														let _ = app_handle_notify
-															.notification()
-															.builder()
-															.title("Recording error")
-															.body(format!(
-																"Failed to start \
-																 recording: {}",
-																e
-															))
-															.show();
 													}
 												}
 											}
@@ -375,7 +290,7 @@ pub fn run() {
 
 			Ok(())
 		})
-		.invoke_handler(tauri::generate_handler![greet])
+		.invoke_handler(tauri::generate_handler![])
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
 }
