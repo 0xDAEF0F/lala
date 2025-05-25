@@ -7,14 +7,9 @@ mod utils;
 use anyhow::Result;
 use iter_tools::Itertools;
 use notifs::Notif;
-use std::{
-	fs,
-	path::PathBuf,
-	sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
-use tokio::process::Command;
 use tokio_stream::StreamExt;
 use utils::{get_latest_wav_file, transcribe_audio};
 
