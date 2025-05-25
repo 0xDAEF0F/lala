@@ -89,7 +89,7 @@ fn cleanse_transcription(raw_text: &str) -> Result<String> {
 		.map(|line| {
 			// line must contain timestamp pattern [HH:MM:SS.mmm --> HH:MM:SS.mmm]
 			if let Some(idx) = line.find(']') {
-				Ok(line[idx + 1..].trim().to_string())
+				Ok(line[idx + 1..].trim())
 			} else {
 				bail!(
 					"Corrupted transcription line, missing ']' timestamp delimiter: {}",
@@ -97,8 +97,7 @@ fn cleanse_transcription(raw_text: &str) -> Result<String> {
 				)
 			}
 		})
-		.collect::<Result<Vec<String>>>()?
+		.collect::<Result<Vec<_>>>()?
 		.join(" ")
-		.trim()
 		.to_owned())
 }
