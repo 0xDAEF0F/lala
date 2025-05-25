@@ -20,7 +20,7 @@ pub fn setup_tray_icon(app: &mut App) -> Result<TrayIconId, Box<dyn std::error::
 	let menu = Menu::with_items(app, &[&quit_i])?;
 
 	let tray = TrayIconBuilder::new()
-		.icon(app.default_window_icon().unwrap().clone())
+		.icon(Image::from_bytes(include_bytes!("../icons/idle.png"))?)
 		.menu(&menu)
 		.show_menu_on_left_click(false)
 		.on_menu_event(|app, event| match event.id.as_ref() {
