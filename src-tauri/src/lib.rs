@@ -1,51 +1,27 @@
+#![feature(let_chains)]
+
 mod logger;
 mod notifs;
+mod utils;
 
+use anyhow::{ensure, Context as _, Result};
 use iter_tools::Itertools;
 use notifs::Notif;
+use utils::get_latest_wav_file;
 use std::{
 	fs,
 	path::PathBuf,
 	sync::atomic::{AtomicBool, Ordering},
-	time::SystemTime,
+	time::UNIX_EPOCH,
 };
+use tap::Tap;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
 use tokio::process::Command;
+use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
 // Global state to track if recording is in progress
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
-
-// Get the path to the most recently created WAV file
-fn get_latest_wav_file() -> anyhow::Result<PathBuf> {
-	let app_support_dir = dirs::home_dir()
-		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
-		.join("Library/Application Support/com.lala.app/tauri-plugin-mic-recorder");
-
-	let entries = fs::read_dir(&app_support_dir)?
-		.filter_map(|entry| entry.ok())
-		.filter(|entry| {
-			entry
-				.path()
-				.extension()
-				.map(|ext| ext == "wav")
-				.unwrap_or(false)
-		})
-		.collect::<Vec<_>>();
-
-	let latest = entries
-		.into_iter()
-		.max_by_key(|entry| {
-			entry
-				.metadata()
-				.ok()
-				.and_then(|m| m.modified().ok())
-				.unwrap_or(SystemTime::UNIX_EPOCH)
-		})
-		.ok_or_else(|| anyhow::anyhow!("No WAV files found"))?;
-
-	Ok(latest.path())
-}
 
 // Run whisper-cli on the given WAV file and return the path to the generated TXT file
 async fn transcribe_audio(wav_path: PathBuf) -> anyhow::Result<String> {
@@ -133,6 +109,115 @@ fn process_transcription(raw_text: &str) -> String {
 		.to_string()
 }
 
+fn async_task(app_handle: tauri::AppHandle) {
+	tauri::async_runtime::spawn(async move {
+		match stop_recording().await {
+			Ok(_) => {
+				log::debug!("Recording stopped successfully");
+
+				match get_latest_wav_file().await {
+					Ok(wav_path) => {
+						log::debug!("Processing WAV file: {:?}", wav_path);
+
+						// Transcribe the audio
+						match transcribe_audio(wav_path).await {
+							Ok(transcript) => {
+								// Copy to clipboard
+								if let Err(e) =
+									app_handle.clipboard().write_text(&transcript)
+								{
+									log::error!("Failed to copy to clipboard: {}", e);
+								}
+
+								// Create notification
+								// with truncated text
+								let display_text = if transcript.len() > 100 {
+									format!("{}...", &transcript[..97])
+								} else {
+									transcript.clone()
+								};
+
+								// Show notification
+								notifs::notify(
+									app_handle,
+									Notif::TranscriptionReady(display_text),
+								);
+							}
+							Err(e) => {
+								log::error!("Transcription failed: {}", e);
+								notifs::notify(app_handle, Notif::TranscriptionFailed);
+							}
+						}
+					}
+					Err(e) => {
+						notifs::notify(app_handle, Notif::TranscriptionFailed);
+					}
+				}
+			}
+			Err(e) => {
+				log::error!("Failed to stop recording: {}", e);
+				notifs::notify(app_handle, Notif::FailedToStopRecording);
+			}
+		}
+	});
+}
+
+#[cfg(desktop)]
+fn setup_shortcuts(app: &mut tauri::App) -> anyhow::Result<()> {
+	use tauri_plugin_global_shortcut::{
+		Code, GlobalShortcutExt, Shortcut, ShortcutState,
+	};
+
+	let f2_shortcut = Shortcut::new(None, Code::F2);
+	let app_handle = app.handle().clone();
+
+	app.handle().plugin(
+		tauri_plugin_global_shortcut::Builder::new()
+			.with_handler({
+				let app_handle = app_handle.clone();
+				move |_app, shortcut, event| {
+					if shortcut == &f2_shortcut && event.state() == ShortcutState::Pressed
+					{
+						let app_handle = app_handle.clone();
+						if IS_RECORDING.load(Ordering::SeqCst) {
+							log::debug!("Stopping recording...");
+							IS_RECORDING.store(false, Ordering::SeqCst);
+
+							async_task(app_handle);
+						} else {
+							log::debug!("Starting recording...");
+							tauri::async_runtime::spawn({
+								let app_handle_rec = app_handle.clone();
+								let app_handle_notify = app_handle.clone();
+								async move {
+									match start_recording(app_handle_rec).await {
+										Ok(_) => {
+											IS_RECORDING.store(true, Ordering::SeqCst);
+											notifs::notify(
+												app_handle_notify,
+												Notif::RecordingStart,
+											);
+										}
+										Err(e) => {
+											notifs::notify(
+												app_handle_notify,
+												Notif::FailedToStartRecording,
+											);
+										}
+									}
+								}
+							});
+						}
+					}
+				}
+			})
+			.build(),
+	)?;
+
+	app.global_shortcut().register(f2_shortcut)?;
+	Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
@@ -142,152 +227,7 @@ pub fn run() {
 		.plugin(tauri_plugin_notification::init())
 		.plugin(tauri_plugin_opener::init())
 		.setup(|app| {
-			#[cfg(desktop)]
-			{
-				use tauri_plugin_global_shortcut::{
-					Code, GlobalShortcutExt, Shortcut, ShortcutState,
-				};
-
-				let f2_shortcut = Shortcut::new(None, Code::F2);
-				let app_handle = app.handle().clone();
-
-				app.handle().plugin(
-					tauri_plugin_global_shortcut::Builder::new()
-						.with_handler({
-							let app_handle = app_handle.clone();
-							move |_app, shortcut, event| {
-								if shortcut == &f2_shortcut
-									&& event.state() == ShortcutState::Pressed
-								{
-									let app_handle = app_handle.clone();
-
-									// Toggle recording state and take appropriate action
-									if IS_RECORDING.load(Ordering::SeqCst) {
-										log::info!("Stopping recording...");
-										IS_RECORDING.store(false, Ordering::SeqCst);
-
-										// Launch the async processing pipeline
-										tauri::async_runtime::spawn(async move {
-											match stop_recording().await {
-												Ok(_) => {
-													log::info!(
-														"Recording stopped successfully"
-													);
-
-													// Process the recording
-													match get_latest_wav_file() {
-														Ok(wav_path) => {
-															log::info!(
-																"Processing WAV file: \
-																 {:?}",
-																wav_path
-															);
-
-															// Transcribe the audio
-															match transcribe_audio(
-																wav_path,
-															)
-															.await
-															{
-																Ok(transcript) => {
-																	// Copy to clipboard
-																	if let Err(e) = app_handle.clipboard().write_text(&transcript) {
-																		log::error!("Failed to copy to clipboard: {}", e);
-																	}
-
-																	// Create notification
-																	// with truncated text
-																	let display_text =
-																		if transcript
-																			.len() > 100
-																		{
-																			format!("{}...", &transcript[..97])
-																		} else {
-																			transcript
-																				.clone()
-																		};
-
-																	// Show notification
-																	notifs::notify(
-																		app_handle,
-																		Notif::TranscriptionReady(
-																			display_text,
-																		),
-																	);
-																}
-																Err(e) => {
-																	log::error!(
-																		"Transcription \
-																		 failed: {}",
-																		e
-																	);
-																	notifs::notify(
-																		app_handle,
-																		Notif::TranscriptionFailed,
-																	);
-																}
-															}
-														}
-														Err(e) => {
-															notifs::notify(
-																app_handle,
-																Notif::TranscriptionFailed,
-															);
-														}
-													}
-												}
-												Err(e) => {
-													log::error!(
-														"Failed to stop recording: {}",
-														e
-													);
-													notifs::notify(
-														app_handle,
-														Notif::FailedToStopRecording,
-													);
-												}
-											}
-										});
-									} else {
-										log::info!("Starting recording...");
-
-										// Start a new recording
-										tauri::async_runtime::spawn({
-											let app_handle_rec = app_handle.clone();
-											let app_handle_notify = app_handle.clone();
-											async move {
-												match start_recording(app_handle_rec)
-													.await
-												{
-													Ok(_) => {
-														IS_RECORDING.store(
-															true,
-															Ordering::SeqCst,
-														);
-														notifs::notify(
-															app_handle_notify,
-															Notif::RecordingStart,
-														);
-													}
-													Err(e) => {
-														notifs::notify(
-															app_handle_notify,
-															Notif::FailedToStartRecording,
-														);
-													}
-												}
-											}
-										});
-									}
-								}
-							}
-						})
-						.build(),
-				)?;
-
-				app.global_shortcut().register(f2_shortcut)?;
-			}
-
+			setup_shortcuts(app)?;
 			Ok(())
 		})
 		.invoke_handler(tauri::generate_handler![])
