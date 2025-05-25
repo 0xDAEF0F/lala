@@ -5,17 +5,16 @@ use std::env;
 use tauri::{plugin::TauriPlugin, Runtime};
 use tauri_plugin_log::Builder;
 
-pub fn init<R>() -> TauriPlugin<R>
-where
-	R: Runtime,
-{
+pub fn init<R: Runtime>() -> TauriPlugin<R> {
 	Builder::new()
 		.level(LevelFilter::Warn)
 		.level_for("lala_lib", {
 			env::var("RUST_LOG")
 				.context("Could not find RUST_LOG in env vars")
 				.and_then(|s| {
-					if let Some(substr) = s
+					if let Ok(level) = s.parse::<LevelFilter>() {
+						Ok(level) // if we can just parse the string => we use it
+					} else if let Some(substr) = s
 						.split(',')
 						.find(|s| s.contains("lala_lib"))
 						.and_then(|s| s.split('=').nth(1))
