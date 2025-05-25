@@ -15,7 +15,11 @@ where
 			env::var("RUST_LOG")
 				.context("Could not find RUST_LOG in env vars")
 				.and_then(|s| {
-					if let Some(substr) = s.split(',').find(|s| s.contains("lala_lib")) {
+					if let Some(substr) = s
+						.split(',')
+						.find(|s| s.contains("lala_lib"))
+						.and_then(|s| s.split('=').nth(1))
+					{
 						Ok(substr.parse::<LevelFilter>()?)
 					} else {
 						Ok(LevelFilter::Info) // if parsing fails => we get logs `Info`

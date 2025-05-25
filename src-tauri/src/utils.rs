@@ -1,7 +1,6 @@
 use crate::process_transcription;
 use anyhow::{ensure, Context, Result};
 use std::{path::PathBuf, time::UNIX_EPOCH};
-use tap::Tap;
 use tokio::process::Command;
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
@@ -78,31 +77,9 @@ pub async fn transcribe_audio(wav_path: PathBuf) -> Result<String> {
 	);
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stdout = stdout.trim();
 
-	log::debug!("{stdout:#?}");
+	log::debug!("Raw stdout: {stdout}");
 
-	if !stdout.is_empty() {
-		let text = process_transcription(stdout.trim());
-		return Ok(text);
-	}
-
-	// If no stdout, try to check for the file in both possible locations
-	let possible_locations = [
-		// Next to the input file
-		wav_path.with_extension("txt"),
-		// In the whisper directory
-		whisper_dir
-			.join(wav_path.file_name().unwrap_or_default())
-			.with_extension("txt"),
-	];
-
-	for txt_path in &possible_locations {
-		log::info!("Checking for output file at: {:?}", txt_path);
-		if txt_path.exists() {
-			let content = tokio::fs::read_to_string(txt_path).await?;
-			return Ok(content);
-		}
-	}
-
-	anyhow::bail!("Could not find or extract transcription")
+	Ok(process_transcription(stdout))
 }
