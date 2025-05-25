@@ -15,7 +15,7 @@ pub fn setup_shortcuts(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 						&& event.state() == ShortcutState::Pressed
 					{
 						match IS_RECORDING.load(Ordering::SeqCst) {
-							true => stop_async_task(app.app_handle().clone()),
+							true => stop_async_task(app.app_handle().clone(), true),
 							false => start_async_task(app.app_handle().clone()),
 						}
 					}

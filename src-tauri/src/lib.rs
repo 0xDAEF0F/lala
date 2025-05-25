@@ -8,6 +8,7 @@ mod utils;
 
 use anyhow::{anyhow, Result};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use log::error;
 use notifs::Notif;
 use std::sync::{
 	atomic::{AtomicBool, Ordering},
@@ -61,7 +62,8 @@ pub fn run() {
 		.expect("error while running tauri application");
 }
 
-// Function to perform the paste operation with Enigo
+// todo: make sure we only instantiate enigo once on the main thread
+// we are currently instantiating it on every paste action
 fn simulate_paste() {
 	match try {
 		let mut enigo = Enigo::new(&Settings::default())?;
@@ -70,7 +72,7 @@ fn simulate_paste() {
 		enigo.key(Key::Meta, Direction::Release)?;
 	} {
 		Ok(()) => log::trace!("Simulated paste keystroke"),
-		Err::<_, anyhow::Error>(e) => log::error!("Failed to simulate paste: {e}"),
+		Err::<_, anyhow::Error>(e) => error!("Failed to simulate paste: {e}"),
 	}
 }
 
@@ -83,13 +85,14 @@ fn start_async_task(app_handle: AppHandle) {
 	update_tray_icon(&tray, AppState::Recording).unwrap();
 	tauri::async_runtime::spawn(async move {
 		if let Err(e) = start_recording(app_handle.clone()).await {
-			log::error!("Failed to start recording: {e:#}");
+			error!("Failed to start recording: {e:#}");
 			_ = notifs::notify(app_handle, Notif::FailedToStartRecording);
 		}
 	});
 }
 
-fn stop_async_task(app_handle: AppHandle) {
+// todo: refactor
+fn stop_async_task(app_handle: AppHandle, auto_paste: bool) {
 	IS_RECORDING.store(false, Ordering::SeqCst);
 	log::trace!("Recording status true => {IS_RECORDING:?}");
 	log::trace!("Updating tray icon to transcribing");
@@ -98,16 +101,20 @@ fn stop_async_task(app_handle: AppHandle) {
 	update_tray_icon(&tray, AppState::Transcribing).unwrap();
 	tauri::async_runtime::spawn(async move {
 		if let Err(e) = stop_and_process_recording(app_handle.clone()).await {
-			log::error!("Recording processing failed: {e:#}");
+			error!("Recording processing failed: {e:#}");
 			// todo: improve error handling
 			if e.to_string().contains("stop recording") {
-				_ = notifs::notify(app_handle, Notif::FailedToStopRecording);
+				notifs::notify(app_handle, Notif::FailedToStopRecording).ok();
 				update_tray_icon(&tray, AppState::Idle).unwrap();
 			} else {
-				_ = notifs::notify(app_handle, Notif::TranscriptionFailed);
+				notifs::notify(app_handle, Notif::TranscriptionFailed).ok();
 				update_tray_icon(&tray, AppState::Idle).unwrap();
 			}
 		} else {
+			if auto_paste {
+				let tx = app_handle.state::<mpsc::Sender<()>>();
+				tx.send(()).map_err(|e| error!("{e}")).ok();
+			}
 			update_tray_icon(&tray, AppState::Idle).unwrap();
 		}
 	});
@@ -123,17 +130,9 @@ async fn stop_and_process_recording(app_handle: AppHandle) -> Result<()> {
 	app_handle.clipboard().write_text(&transcript)?;
 	log::trace!("Transcript copied to clipboard");
 
-	// After copying to clipboard, send signal to paste
-	let tx = app_handle.state::<mpsc::Sender<()>>();
-	if let Err(e) = tx.send(()) {
-		log::error!("Failed to send paste action: {e}");
-	} else {
-		log::trace!("Paste action triggered");
-	}
-
 	match notifs::notify(app_handle, Notif::TranscriptionReady(transcript)) {
 		Ok(_) => log::trace!("Notif TranscriptionReady"),
-		Err(e) => log::error!("Failed to show notif: {e}"),
+		Err(e) => error!("Failed to show notif: {e}"),
 	}
 
 	Ok(())

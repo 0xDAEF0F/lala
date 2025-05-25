@@ -43,7 +43,7 @@ pub fn setup_tray_icon(app: &mut App) -> Result<TrayIconId, Box<dyn std::error::
 				if button == MouseButton::Left {
 					match IS_RECORDING.load(Ordering::SeqCst) {
 						false => start_async_task(app_handle.clone()),
-						true => stop_async_task(app_handle.clone()),
+						true => stop_async_task(app_handle.clone(), false),
 					}
 				} else if button == MouseButton::Right {
 					if let Err(e) = tray_icon.set_visible(true) {
