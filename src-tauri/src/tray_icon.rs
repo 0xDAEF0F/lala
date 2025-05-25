@@ -1,16 +1,25 @@
 use crate::{start_async_task, stop_async_task, IS_RECORDING};
+use anyhow::Result;
 use std::sync::atomic::Ordering;
 use tauri::{
+	image::Image,
 	menu::{Menu, MenuItem},
-	tray::{MouseButton, MouseButtonState, TrayIconBuilder},
+	tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconId},
 	App,
 };
 
-pub fn setup_tray_icon(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AppState {
+	Idle,
+	Recording,
+	Transcribing,
+}
+
+pub fn setup_tray_icon(app: &mut App) -> Result<TrayIconId, Box<dyn std::error::Error>> {
 	let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 	let menu = Menu::with_items(app, &[&quit_i])?;
 
-	let _tray = TrayIconBuilder::new()
+	let tray = TrayIconBuilder::new()
 		.icon(app.default_window_icon().unwrap().clone())
 		.menu(&menu)
 		.show_menu_on_left_click(false)
@@ -33,8 +42,8 @@ pub fn setup_tray_icon(app: &mut App) -> Result<(), Box<dyn std::error::Error>> 
 				let app_handle = tray_icon.app_handle().clone();
 				if button == MouseButton::Left {
 					match IS_RECORDING.load(Ordering::SeqCst) {
-						false => start_async_task(app_handle),
-						true => stop_async_task(app_handle),
+						false => start_async_task(app_handle.clone()),
+						true => stop_async_task(app_handle.clone()),
 					}
 				} else if button == MouseButton::Right {
 					if let Err(e) = tray_icon.set_visible(true) {
@@ -45,5 +54,19 @@ pub fn setup_tray_icon(app: &mut App) -> Result<(), Box<dyn std::error::Error>> 
 		})
 		.build(app)?;
 
+	Ok(tray.id().to_owned())
+}
+
+pub fn update_tray_icon(tray_icon: &TrayIcon, state: AppState) -> Result<()> {
+	let img = match state {
+		AppState::Idle => Image::from_bytes(include_bytes!("../icons/idle.png")),
+		AppState::Recording => {
+			Image::from_bytes(include_bytes!("../icons/recording.png"))
+		}
+		AppState::Transcribing => {
+			Image::from_bytes(include_bytes!("../icons/transcribing.png"))
+		}
+	}?;
+	tray_icon.set_icon(Some(img))?;
 	Ok(())
 }

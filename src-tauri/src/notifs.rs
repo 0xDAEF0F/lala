@@ -1,3 +1,4 @@
+use anyhow::Result;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
@@ -38,17 +39,13 @@ impl From<Notif> for Payload {
 	}
 }
 
-/// handles logging if there is an error displaying the notification
-pub fn notify(app_handle: AppHandle, notification_type: Notif) {
+pub fn notify(app_handle: AppHandle, notification_type: Notif) -> Result<()> {
 	let payload: Payload = notification_type.clone().into();
 	app_handle
 		.notification()
 		.builder()
 		.title(payload.title)
 		.body(payload.body)
-		.show()
-		.map_or_else(
-			|e| log::error!("Failed show notif: {e}"),
-			|_| log::trace!("Notif {notification_type:?}"),
-		);
+		.show()?;
+	Ok(())
 }
