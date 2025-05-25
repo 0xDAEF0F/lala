@@ -5,12 +5,13 @@ mod notifs;
 mod shortcuts;
 mod utils;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use notifs::Notif;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
-use utils::{get_latest_wav_file, transcribe_audio};
+use utils::transcribe_audio;
 
 // Global state to track if recording is in progress
 pub static IS_RECORDING: AtomicBool = AtomicBool::new(false);
@@ -30,63 +31,24 @@ pub fn run() {
 		.expect("error while running tauri application");
 }
 
-/// Processes the recorded audio after stopping recording.
-///
-/// Transcribes the audio file, copies it to clipboard, and shows a notification.
-async fn process_recording(app_handle: tauri::AppHandle) -> Result<()> {
-	if let Err(e) = stop_recording().await {
-		anyhow::bail!("Failed to stop recording: {}", e);
-	}
-	log::debug!("Recording stopped successfully");
-
-	let wav_path = get_latest_wav_file().await?;
-	log::debug!("Processing WAV file: {:?}", wav_path);
-
-	// Transcribe the audio
-	let transcript = transcribe_audio(wav_path).await?;
-
-	// Copy to clipboard
-	if let Err(e) = app_handle.clipboard().write_text(&transcript) {
-		anyhow::bail!("Failed to copy to clipboard: {}", e);
-	}
-
-	// Create notification with truncated text
-	let display_text = if transcript.len() > 100 {
-		format!("{}...", &transcript[..97])
-	} else {
-		transcript.clone()
-	};
-
-	// Show notification
-	notifs::notify(app_handle, Notif::TranscriptionReady(display_text));
-	Ok(())
-}
-
-/// Starts the recording process.
-///
-/// Shows a notification on successful start.
-async fn start_recording_process(app_handle: tauri::AppHandle) -> Result<()> {
-	if let Err(e) = start_recording(app_handle.clone()).await {
-		anyhow::bail!("Failed to start recording: {}", e);
-	}
-
+fn start_async_task(app_handle: AppHandle) {
 	IS_RECORDING.store(true, Ordering::SeqCst);
-	notifs::notify(app_handle, Notif::RecordingStart);
-	Ok(())
+	log::trace!("Recording status false => {:?}", IS_RECORDING);
+	tauri::async_runtime::spawn(async move {
+		if let Err(e) = start_recording(app_handle.clone()).await {
+			log::error!("Failed to start recording: {:#}", e);
+			notifs::notify(app_handle, Notif::FailedToStartRecording);
+		}
+	});
 }
 
-/// Handles the recording task asynchronously.
-///
-/// This function is called when stopping a recording and handles the entire
-/// post-processing workflow with proper error handling.
-fn async_task(app_handle: tauri::AppHandle) {
+fn stop_async_task(app_handle: AppHandle) {
+	IS_RECORDING.store(false, Ordering::SeqCst);
+	log::trace!("Recording status true => {:?}", IS_RECORDING);
 	tauri::async_runtime::spawn(async move {
-		IS_RECORDING.store(false, Ordering::SeqCst);
-
-		if let Err(e) = process_recording(app_handle.clone()).await {
+		if let Err(e) = stop_and_process_recording(app_handle.clone()).await {
 			log::error!("Recording processing failed: {:#}", e);
-
-			// Determine the appropriate notification based on error context
+			// todo: improve error handling
 			if e.to_string().contains("stop recording") {
 				notifs::notify(app_handle, Notif::FailedToStopRecording);
 			} else {
@@ -94,4 +56,19 @@ fn async_task(app_handle: tauri::AppHandle) {
 			}
 		}
 	});
+}
+
+async fn stop_and_process_recording(app_handle: AppHandle) -> Result<()> {
+	let wav_path = stop_recording().await.map_err(|s| anyhow!(s))?;
+
+	log::trace!("Recording stopped successfully");
+	log::debug!("Processing WAV file: {:?}", wav_path);
+
+	let transcript = transcribe_audio(wav_path).await?;
+
+	app_handle.clipboard().write_text(&transcript)?;
+
+	notifs::notify(app_handle, Notif::TranscriptionReady(transcript));
+
+	Ok(())
 }

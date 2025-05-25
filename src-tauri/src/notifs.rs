@@ -3,7 +3,6 @@ use tauri_plugin_notification::NotificationExt;
 
 #[derive(Debug, Clone)]
 pub enum Notif {
-	RecordingStart,
 	FailedToStartRecording,
 	FailedToStopRecording,
 	TranscriptionReady(String),
@@ -19,10 +18,6 @@ pub struct Payload {
 impl From<Notif> for Payload {
 	fn from(notif: Notif) -> Self {
 		match notif {
-			Notif::RecordingStart => Payload {
-				title: "Recording".to_string(),
-				body: "Recording started. Press F2 again to stop.".to_string(),
-			},
 			Notif::FailedToStartRecording => Payload {
 				title: "Recording error".to_string(),
 				body: "Failed to start recording. Please try again.".to_string(),
@@ -33,7 +28,7 @@ impl From<Notif> for Payload {
 			},
 			Notif::TranscriptionReady(text) => Payload {
 				title: "Transcription ready".to_string(),
-				body: text,
+				body: text.get(..50).unwrap_or(&text).to_string(),
 			},
 			Notif::TranscriptionFailed => Payload {
 				title: "Transcription error".to_string(),
