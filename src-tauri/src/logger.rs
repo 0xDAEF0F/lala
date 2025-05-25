@@ -1,5 +1,7 @@
+use anyhow::Context as _;
 use colored::Colorize as _;
 use log::LevelFilter;
+use std::env;
 use tauri::{plugin::TauriPlugin, Runtime};
 use tauri_plugin_log::Builder;
 
@@ -9,7 +11,18 @@ where
 {
 	Builder::new()
 		.level(LevelFilter::Warn)
-		.level_for("lala_lib", LevelFilter::Info)
+		.level_for("lala_lib", {
+			env::var("RUST_LOG")
+				.context("Could not find RUST_LOG in env vars")
+				.and_then(|s| {
+					if let Some(substr) = s.split(',').find(|s| s.contains("lala_lib")) {
+						Ok(substr.parse::<LevelFilter>()?)
+					} else {
+						Ok(LevelFilter::Info) // if parsing fails => we get logs `Info`
+					}
+				}) // if reading `RUST_LOG` fails => we get logs `Info`
+				.unwrap_or(LevelFilter::Info)
+		})
 		.format(|cb, _, record| {
 			use env_logger::fmt::style;
 			let style = match record.level() {

@@ -4,89 +4,23 @@ mod logger;
 mod notifs;
 mod utils;
 
-use anyhow::{ensure, Context as _, Result};
+use anyhow::Result;
 use iter_tools::Itertools;
 use notifs::Notif;
-use utils::get_latest_wav_file;
 use std::{
 	fs,
 	path::PathBuf,
 	sync::atomic::{AtomicBool, Ordering},
-	time::UNIX_EPOCH,
 };
-use tap::Tap;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
 use tokio::process::Command;
-use tokio_stream::{wrappers::ReadDirStream, StreamExt};
+use tokio_stream::StreamExt;
+use utils::{get_latest_wav_file, transcribe_audio};
 
 // Global state to track if recording is in progress
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 
-// Run whisper-cli on the given WAV file and return the path to the generated TXT file
-async fn transcribe_audio(wav_path: PathBuf) -> anyhow::Result<String> {
-	let whisper_dir = dirs::home_dir()
-		.ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
-		.join("external-libraries/whisper.cpp");
-
-	// Log the command we're about to run
-	log::info!("Running whisper-cli from directory: {:?}", whisper_dir);
-	log::info!("Processing audio file: {:?}", wav_path);
-
-	// Run whisper-cli
-	let mut command = Command::new("./build/bin/whisper-cli");
-	command
-		.current_dir(&whisper_dir)
-		.arg("--output-txt")
-		.arg("--no-prints")
-		.arg(&wav_path);
-
-	log::info!(
-		"Executing whisper-cli with audio file: {}",
-		wav_path.display()
-	);
-
-	let output = command.output().await?;
-
-	log::info!("Command exit status: {}", output.status);
-
-	if !output.status.success() {
-		// Extract error message
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		log::error!("Command stderr: {}", stderr);
-		anyhow::bail!("Whisper CLI failed: {}", stderr);
-	}
-
-	// Extract transcription from stdout
-	let stdout = String::from_utf8_lossy(&output.stdout);
-	if !stdout.is_empty() {
-		log::info!("Command stdout: {}", stdout);
-
-		// Process the transcription to remove timestamps
-		let text = process_transcription(stdout.trim());
-		return Ok(text);
-	}
-
-	// If no stdout, try to check for the file in both possible locations
-	let possible_locations = [
-		// Next to the input file
-		wav_path.with_extension("txt"),
-		// In the whisper directory
-		whisper_dir
-			.join(wav_path.file_name().unwrap_or_default())
-			.with_extension("txt"),
-	];
-
-	for txt_path in &possible_locations {
-		log::info!("Checking for output file at: {:?}", txt_path);
-		if txt_path.exists() {
-			let content = fs::read_to_string(txt_path)?;
-			return Ok(content);
-		}
-	}
-
-	anyhow::bail!("Could not find or extract transcription")
-}
 
 // Add a new function to process the transcription
 fn process_transcription(raw_text: &str) -> String {
@@ -163,7 +97,7 @@ fn async_task(app_handle: tauri::AppHandle) {
 }
 
 #[cfg(desktop)]
-fn setup_shortcuts(app: &mut tauri::App) -> anyhow::Result<()> {
+fn setup_shortcuts(app: &mut tauri::App) -> Result<()> {
 	use tauri_plugin_global_shortcut::{
 		Code, GlobalShortcutExt, Shortcut, ShortcutState,
 	};
@@ -174,7 +108,6 @@ fn setup_shortcuts(app: &mut tauri::App) -> anyhow::Result<()> {
 	app.handle().plugin(
 		tauri_plugin_global_shortcut::Builder::new()
 			.with_handler({
-				let app_handle = app_handle.clone();
 				move |_app, shortcut, event| {
 					if shortcut == &f2_shortcut && event.state() == ShortcutState::Pressed
 					{
@@ -220,6 +153,7 @@ fn setup_shortcuts(app: &mut tauri::App) -> anyhow::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+	dotenvy::dotenv().ok();
 	tauri::Builder::default()
 		.plugin(logger::init())
 		.plugin(tauri_plugin_clipboard_manager::init())
