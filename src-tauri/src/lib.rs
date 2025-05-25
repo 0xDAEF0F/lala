@@ -3,6 +3,7 @@
 mod logger;
 mod notifs;
 mod shortcuts;
+mod tray_icon;
 mod utils;
 
 use anyhow::{anyhow, Result};
@@ -26,6 +27,7 @@ pub fn run() {
 		.plugin(tauri_plugin_notification::init())
 		.plugin(tauri_plugin_opener::init())
 		.setup(|app| shortcuts::setup_shortcuts(app))
+		.setup(|app| tray_icon::setup_tray_icon(app))
 		.invoke_handler(tauri::generate_handler![])
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
