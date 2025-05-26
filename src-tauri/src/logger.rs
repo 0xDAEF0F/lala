@@ -9,22 +9,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 	Builder::new()
 		.level(LevelFilter::Warn)
 		.level_for("lala_lib", {
-			env::var("RUST_LOG")
-				.context("Could not find RUST_LOG in env vars")
-				.and_then(|s| {
-					if let Ok(level) = s.parse::<LevelFilter>() {
-						Ok(level) // if we can just parse the string => we use it
-					} else if let Some(substr) = s
-						.split(',')
-						.find(|s| s.contains("lala_lib"))
-						.and_then(|s| s.split('=').nth(1))
-					{
-						Ok(substr.parse::<LevelFilter>()?)
-					} else {
-						Ok(LevelFilter::Info) // if parsing fails => we get logs `Info`
-					}
-				}) // if reading `RUST_LOG` fails => we get logs `Info`
-				.unwrap_or(LevelFilter::Info)
+			// env::var("RUST_LOG")
+			// 	.context("Could not find RUST_LOG in env vars")
+			// 	.and_then(|s| {
+			// 		if let Ok(level) = s.parse::<LevelFilter>() {
+			// 			Ok(level) // if we can just parse the string => we use it
+			// 		} else if let Some(substr) = s
+			// 			.split(',')
+			// 			.find(|s| s.contains("lala_lib"))
+			// 			.and_then(|s| s.split('=').nth(1))
+			// 		{
+			// 			Ok(substr.parse::<LevelFilter>()?)
+			// 		} else {
+			// 			Ok(LevelFilter::Info) // if parsing fails => we get logs `Info`
+			// 		}
+			// 	}) // if reading `RUST_LOG` fails => we get logs `Info`
+			// 	.unwrap_or(LevelFilter::Info)
+			LevelFilter::Trace
 		})
 		.format(|cb, _, record| {
 			use env_logger::fmt::style;
@@ -49,5 +50,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 				record.args()
 			));
 		})
+		// .target(tauri_plugin_log::Target::new(
+		// 	tauri_plugin_log::TargetKind::LogDir {
+		// 		file_name: Some("lala_lib.log".to_string()),
+		// 	},
+		// ))
 		.build()
 }
