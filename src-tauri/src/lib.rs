@@ -32,7 +32,7 @@ pub fn run() {
 		.plugin(tauri_plugin_mic_recorder::init())
 		.plugin(tauri_plugin_notification::init())
 		.plugin(tauri_plugin_opener::init())
-		.setup(move |app| {
+		.setup(|app| {
 			#[cfg(target_os = "macos")]
 			app.set_activation_policy(ActivationPolicy::Accessory);
 
@@ -56,6 +56,13 @@ pub fn run() {
 			});
 
 			Ok(())
+		})
+		.on_window_event(|window, event| {
+			if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+				log::trace!("window close requested. hiding window");
+				window.hide().ok();
+				api.prevent_close();
+			}
 		})
 		.invoke_handler(tauri::generate_handler![])
 		.run(tauri::generate_context!())
