@@ -12,7 +12,7 @@ pub enum Notif {
 
 #[derive(Debug)]
 pub struct Payload {
-	pub title: String,
+	pub title: &'static str,
 	pub body: String,
 }
 
@@ -20,19 +20,19 @@ impl From<Notif> for Payload {
 	fn from(notif: Notif) -> Self {
 		match notif {
 			Notif::FailedToStartRecording => Payload {
-				title: "Recording error".to_string(),
+				title: "❌",
 				body: "Failed to start recording. Please try again.".to_string(),
 			},
 			Notif::FailedToStopRecording => Payload {
-				title: "Recording error".to_string(),
+				title: "❌",
 				body: "Failed to stop recording. Please try again.".to_string(),
 			},
 			Notif::TranscriptionReady(text) => Payload {
-				title: "Transcription ready".to_string(),
+				title: "✅",
 				body: text.get(..50).unwrap_or(&text).to_string(),
 			},
 			Notif::TranscriptionFailed => Payload {
-				title: "Transcription error".to_string(),
+				title: "❌",
 				body: "Transcription failed. Please try again.".to_string(),
 			},
 		}
