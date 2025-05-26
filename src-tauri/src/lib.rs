@@ -1,5 +1,6 @@
 #![feature(let_chains, try_blocks)]
 
+mod autostart;
 mod logger;
 mod notifs;
 mod shortcuts;
@@ -35,6 +36,9 @@ pub fn run() {
 		.setup(|app| {
 			#[cfg(target_os = "macos")]
 			app.set_activation_policy(ActivationPolicy::Accessory);
+
+			#[cfg(desktop)]
+			autostart::init(app);
 
 			shortcuts::setup_shortcuts(app)?;
 

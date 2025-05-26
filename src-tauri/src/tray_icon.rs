@@ -7,6 +7,7 @@ use tauri::{
 	tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconId},
 	App, Manager,
 };
+use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppState {
@@ -18,7 +19,31 @@ pub enum AppState {
 pub fn setup_tray_icon(app: &mut App) -> Result<TrayIconId, Box<dyn std::error::Error>> {
 	let open_i = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
 	let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-	let menu = Menu::with_items(app, &[&open_i, &quit_i])?;
+
+	// Create the auto-start menu item only if we can get the status
+	let auto_start_i = if let Ok(is_enabled) = app.autolaunch().is_enabled() {
+		let label = if is_enabled {
+			"Disable Auto-start"
+		} else {
+			"Enable Auto-start"
+		};
+		Some(MenuItem::with_id(
+			app,
+			"auto-start",
+			label,
+			true,
+			None::<&str>,
+		)?)
+	} else {
+		None
+	};
+
+	// Build menu with or without auto-start item
+	let menu = if let Some(ref auto_start) = auto_start_i {
+		Menu::with_items(app, &[&open_i, auto_start, &quit_i])?
+	} else {
+		Menu::with_items(app, &[&open_i, &quit_i])?
+	};
 
 	let tray = TrayIconBuilder::new()
 		.icon(Image::from_bytes(include_bytes!("../icons/idle.png"))?)
@@ -40,6 +65,24 @@ pub fn setup_tray_icon(app: &mut App) -> Result<TrayIconId, Box<dyn std::error::
 					Ok(_) => log::info!("main window shown and focused"),
 					Err::<_, anyhow::Error>(e) => {
 						log::error!("failed to show main window: {e}")
+					}
+				}
+			}
+			"auto-start" => {
+				match try {
+					let auto_launch = app.autolaunch();
+					let is_enabled = auto_launch.is_enabled()?;
+					log::info!("auto-launch status: {is_enabled}");
+					match is_enabled {
+						true => auto_launch.disable()?,
+						false => auto_launch.enable()?,
+					}
+					log::info!("Restarting app to refresh menu.");
+					app.restart();
+				} {
+					Ok(_) => {}
+					Err::<_, anyhow::Error>(e) => {
+						log::error!("Failed to toggle auto-start: {e}");
 					}
 				}
 			}
