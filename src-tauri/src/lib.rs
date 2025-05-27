@@ -111,7 +111,7 @@ fn stop_async_task(app_handle: AppHandle, auto_paste: bool) {
 	let tray = app_handle.tray_by_id(tray_id.inner()).unwrap();
 	update_tray_icon(&tray, AppState::Transcribing).unwrap();
 	tauri::async_runtime::spawn(async move {
-		if let Err(e) = stop_and_process_recording(app_handle.clone()).await {
+		if let Err(e) = stop_and_process_recording(app_handle.clone(), auto_paste).await {
 			error!("Recording processing failed: {e:#}");
 			// todo: improve error handling
 			if e.to_string().contains("stop recording") {
@@ -131,7 +131,10 @@ fn stop_async_task(app_handle: AppHandle, auto_paste: bool) {
 	});
 }
 
-async fn stop_and_process_recording(app_handle: AppHandle) -> Result<()> {
+async fn stop_and_process_recording(
+	app_handle: AppHandle,
+	silent_notification: bool,
+) -> Result<()> {
 	let wav_path = stop_recording().await.map_err(|s| anyhow!(s))?;
 	log::trace!("Recording stopped successfully");
 
@@ -141,9 +144,8 @@ async fn stop_and_process_recording(app_handle: AppHandle) -> Result<()> {
 	app_handle.clipboard().write_text(&transcript)?;
 	log::trace!("Transcript copied to clipboard");
 
-	match notifs::notify(app_handle, Notif::TranscriptionReady(transcript)) {
-		Ok(_) => log::trace!("Notif TranscriptionReady"),
-		Err(e) => error!("Failed to show notif: {e}"),
+	if !silent_notification {
+		notifs::notify(app_handle, Notif::TranscriptionReady(transcript))?;
 	}
 
 	Ok(())
