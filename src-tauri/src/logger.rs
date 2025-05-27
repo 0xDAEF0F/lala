@@ -1,31 +1,30 @@
-use anyhow::Context as _;
 use colored::Colorize as _;
 use log::LevelFilter;
 use std::env;
 use tauri::{plugin::TauriPlugin, Runtime};
 use tauri_plugin_log::Builder;
 
+/// logs go to `~/Library/Logs/com.lala.app`
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
 	Builder::new()
 		.level(LevelFilter::Warn)
 		.level_for("lala_lib", {
-			// env::var("RUST_LOG")
-			// 	.context("Could not find RUST_LOG in env vars")
-			// 	.and_then(|s| {
-			// 		if let Ok(level) = s.parse::<LevelFilter>() {
-			// 			Ok(level) // if we can just parse the string => we use it
-			// 		} else if let Some(substr) = s
-			// 			.split(',')
-			// 			.find(|s| s.contains("lala_lib"))
-			// 			.and_then(|s| s.split('=').nth(1))
-			// 		{
-			// 			Ok(substr.parse::<LevelFilter>()?)
-			// 		} else {
-			// 			Ok(LevelFilter::Info) // if parsing fails => we get logs `Info`
-			// 		}
-			// 	}) // if reading `RUST_LOG` fails => we get logs `Info`
-			// 	.unwrap_or(LevelFilter::Info)
-			LevelFilter::Trace
+			env::var("RUST_LOG")
+				.ok()
+				.and_then(|s| {
+					// First, try to parse as a simple level (e.g., "debug", "info")
+					if let Ok(level) = s.parse::<LevelFilter>() {
+						Some(level)
+					} else {
+						// Otherwise, look for module-specific setting (e.g.,
+						// "foo=warn,lala_lib=debug")
+						s.split(',')
+							.find(|s| s.contains("lala_lib"))
+							.and_then(|s| s.split('=').nth(1))
+							.and_then(|level_str| level_str.parse::<LevelFilter>().ok())
+					}
+				})
+				.unwrap_or(LevelFilter::Info)
 		})
 		.format(|cb, _, record| {
 			use env_logger::fmt::style;
@@ -50,10 +49,5 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 				record.args()
 			));
 		})
-		// .target(tauri_plugin_log::Target::new(
-		// 	tauri_plugin_log::TargetKind::LogDir {
-		// 		file_name: Some("lala_lib.log".to_string()),
-		// 	},
-		// ))
 		.build()
 }
