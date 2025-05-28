@@ -8,6 +8,7 @@ pub enum Notif {
 	FailedToStopRecording,
 	TranscriptionReady(String),
 	TranscriptionFailed,
+	UserCancelledRecording,
 }
 
 #[derive(Debug)]
@@ -27,8 +28,12 @@ impl From<Notif> for Payload {
 				title: "❌",
 				body: "Failed to stop recording. Please try again.".to_string(),
 			},
+			Notif::UserCancelledRecording => Payload {
+				title: "🔇 Recording cancelled",
+				body: "   Audio discarded".to_string(),
+			},
 			Notif::TranscriptionReady(text) => Payload {
-				title: "Transcription ready ✅",
+				title: "🎞️ Transcription ready",
 				body: text.get(..50).unwrap_or(&text).to_string(),
 			},
 			Notif::TranscriptionFailed => Payload {

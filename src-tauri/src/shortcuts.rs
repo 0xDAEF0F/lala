@@ -1,6 +1,6 @@
 #[cfg(desktop)]
 pub fn setup_shortcuts(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-	use crate::{start_async_task, stop_async_task, IS_RECORDING};
+	use crate::{cancel_async_task, start_async_task, stop_async_task, IS_RECORDING};
 	use std::sync::atomic::Ordering;
 	use tauri::Manager;
 	use tauri_plugin_global_shortcut::{
@@ -18,6 +18,11 @@ pub fn setup_shortcuts(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 							true => stop_async_task(app.app_handle().clone(), true),
 							false => start_async_task(app.app_handle().clone()),
 						}
+					} else if shortcut == Shortcut::new(None, Code::F3)
+						&& event.state() == ShortcutState::Pressed
+						&& IS_RECORDING.load(Ordering::SeqCst)
+					{
+						cancel_async_task(app.app_handle().clone());
 					}
 				}
 			})
@@ -26,6 +31,8 @@ pub fn setup_shortcuts(app: &mut tauri::App) -> Result<(), Box<dyn std::error::E
 
 	app.global_shortcut()
 		.register(Shortcut::new(None, Code::F2))?;
+	app.global_shortcut()
+		.register(Shortcut::new(None, Code::F3))?;
 
 	Ok(())
 }

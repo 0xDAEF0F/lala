@@ -186,3 +186,34 @@ async fn stop_and_process_recording(
 
 	Ok(original_clipboard)
 }
+
+pub fn cancel_async_task(app_handle: AppHandle) {
+	IS_RECORDING.store(false, Ordering::SeqCst);
+	log::trace!("Recording cancelled by user");
+	let tray_id = app_handle.state::<TrayIconId>();
+	let tray = app_handle.tray_by_id(tray_id.inner()).unwrap();
+	update_tray_icon(&tray, AppState::Idle).unwrap();
+	tauri::async_runtime::spawn(async move {
+		match cancel_and_discard_recording().await {
+			Ok(()) => {
+				log::trace!("Recording cancelled and audio discarded");
+				notifs::notify(app_handle, Notif::UserCancelledRecording).ok();
+			}
+			Err(e) => {
+				error!("Failed to cancel recording: {e:#}");
+				notifs::notify(app_handle, Notif::FailedToStopRecording).ok();
+			}
+		}
+	});
+}
+
+async fn cancel_and_discard_recording() -> Result<()> {
+	let wav_path = stop_recording().await.map_err(|s| anyhow!(s))?;
+	log::trace!("Recording stopped for cancellation");
+
+	_ = tokio::fs::remove_file(&wav_path).await.tap_err(|err| {
+		log::error!("Failed to delete the cancelled WAV file: {err}");
+	});
+
+	Ok(())
+}
