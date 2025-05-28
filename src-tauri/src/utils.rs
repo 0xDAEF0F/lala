@@ -1,5 +1,5 @@
 use anyhow::{bail, ensure, Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 /// The directory where whisper-cli is installed relative to the home directory.
@@ -9,7 +9,7 @@ const WHISPER_DIR: &str = "external-libraries/whisper.cpp";
 ///
 /// Returns an error if the home directory cannot be found,
 /// or if the whisper-cli command fails.
-pub async fn transcribe_audio(wav_path: PathBuf) -> Result<String> {
+pub async fn transcribe_audio(wav_path: &Path) -> Result<String> {
 	let whisper_dir = dirs::home_dir()
 		.context("Could not find home directory")?
 		.join(WHISPER_DIR);
@@ -17,9 +17,10 @@ pub async fn transcribe_audio(wav_path: PathBuf) -> Result<String> {
 	let binary = "./build/bin/whisper-cli";
 	let output = Command::new(binary)
 		.current_dir(&whisper_dir)
-		.arg("--output-txt")
-		.arg("--no-prints")
-		.arg(&wav_path)
+		.args(["-m", "models/ggml-small.bin"])
+		.args(["-l", "auto"]) // auto language detection
+		.args(["--no-prints"]) // no verbose
+		.arg(wav_path)
 		.output()
 		.await?;
 

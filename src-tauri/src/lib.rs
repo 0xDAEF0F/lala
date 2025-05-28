@@ -15,6 +15,7 @@ use std::sync::{
 	atomic::{AtomicBool, Ordering},
 	mpsc,
 };
+use tap::TapFallible;
 use tauri::{tray::TrayIconId, ActivationPolicy, AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_mic_recorder::{start_recording, stop_recording};
@@ -170,7 +171,11 @@ async fn stop_and_process_recording(
 	log::trace!("Recording stopped successfully");
 
 	log::debug!("Processing WAV file: {wav_path:?}");
-	let transcript = transcribe_audio(wav_path).await?;
+	let transcript = transcribe_audio(&wav_path).await?;
+
+	_ = tokio::fs::remove_file(&wav_path).await.tap_err(|err| {
+		log::error!("Failed to delete the WAV file: {err}");
+	});
 
 	app_handle.clipboard().write_text(&transcript)?;
 	log::trace!("Transcript copied to clipboard");
