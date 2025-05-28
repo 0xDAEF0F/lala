@@ -1,5 +1,5 @@
 use anyhow::{bail, ensure, Context, Result};
-use std::path::{Path, PathBuf};
+use std::{path::Path, time::Instant};
 use tokio::process::Command;
 
 /// The directory where whisper-cli is installed relative to the home directory.
@@ -15,6 +15,10 @@ pub async fn transcribe_audio(wav_path: &Path) -> Result<String> {
 		.join(WHISPER_DIR);
 
 	let binary = "./build/bin/whisper-cli";
+
+	log::trace!("Starting transcription for: {}", wav_path.display());
+	let start_time = Instant::now();
+
 	let output = Command::new(binary)
 		.current_dir(&whisper_dir)
 		.args(["-m", "models/ggml-small.bin"])
@@ -23,6 +27,13 @@ pub async fn transcribe_audio(wav_path: &Path) -> Result<String> {
 		.arg(wav_path)
 		.output()
 		.await?;
+
+	let transcription_duration = start_time.elapsed();
+
+	log::debug!(
+		"Transcription completed in: {:.2}s",
+		transcription_duration.as_secs_f64()
+	);
 
 	log::debug!("Command exit status: {}", output.status);
 
