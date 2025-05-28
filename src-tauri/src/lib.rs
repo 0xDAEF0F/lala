@@ -46,15 +46,18 @@ pub fn run() {
 			app.manage(tray_id);
 
 			// channel for sending paste actions to the main thread
-			let (tx, rx) = mpsc::channel::<()>();
+			let (tx, rx) = mpsc::channel::<String>();
 			app.manage(tx);
 
 			// Set up receiver on the main thread
 			std::thread::spawn({
 				let app_handle = app.app_handle().clone();
 				move || {
-					while rx.recv().is_ok() {
-						_ = app_handle.clone().run_on_main_thread(simulate_paste);
+					while let Ok(original_clipboard) = rx.recv() {
+						let app_handle_clone = app_handle.clone();
+						_ = app_handle.clone().run_on_main_thread(move || {
+							simulate_paste(&app_handle_clone, original_clipboard);
+						});
 					}
 				}
 			});
@@ -75,16 +78,31 @@ pub fn run() {
 
 // todo: make sure we only instantiate enigo once on the main thread
 // we are currently instantiating it on every paste action
-fn simulate_paste() {
+fn simulate_paste(app_handle: &AppHandle, original_clipboard: String) {
 	match try {
 		let mut enigo = Enigo::new(&Settings::default())?;
 		enigo.key(Key::Meta, Direction::Press)?;
 		enigo.key(Key::Unicode('v'), Direction::Click)?;
 		enigo.key(Key::Meta, Direction::Release)?;
+
+		// Wait a bit for the paste to complete before restoring clipboard
+		std::thread::sleep(std::time::Duration::from_millis(100));
 	} {
-		Ok(()) => log::trace!("Simulated paste keystroke"),
+		Ok(()) => {
+			log::trace!("Simulated paste keystroke");
+			// Restore original clipboard content after paste
+			if let Err(e) = restore_clipboard(app_handle, original_clipboard) {
+				error!("Failed to restore original clipboard: {e}");
+			}
+		}
 		Err::<_, anyhow::Error>(e) => error!("Failed to simulate paste: {e}"),
 	}
+}
+
+fn restore_clipboard(app_handle: &AppHandle, content: String) -> Result<()> {
+	app_handle.clipboard().write_text(&content)?;
+	log::trace!("Restored original clipboard content");
+	Ok(())
 }
 
 fn start_async_task(app_handle: AppHandle) {
@@ -111,22 +129,32 @@ fn stop_async_task(app_handle: AppHandle, auto_paste: bool) {
 	let tray = app_handle.tray_by_id(tray_id.inner()).unwrap();
 	update_tray_icon(&tray, AppState::Transcribing).unwrap();
 	tauri::async_runtime::spawn(async move {
-		if let Err(e) = stop_and_process_recording(app_handle.clone(), auto_paste).await {
-			error!("Recording processing failed: {e:#}");
-			// todo: improve error handling
-			if e.to_string().contains("stop recording") {
-				notifs::notify(app_handle, Notif::FailedToStopRecording).ok();
-				update_tray_icon(&tray, AppState::Idle).unwrap();
-			} else {
-				notifs::notify(app_handle, Notif::TranscriptionFailed).ok();
+		match stop_and_process_recording(app_handle.clone(), auto_paste).await {
+			Ok(maybe_past_clipboard) => {
+				if auto_paste {
+					let tx = app_handle.state::<mpsc::Sender<String>>();
+					match maybe_past_clipboard {
+						Some(clipboard) => {
+							tx.send(clipboard).map_err(|e| error!("{e}")).ok();
+						}
+						None => {
+							tx.send("".to_string()).map_err(|e| error!("{e}")).ok();
+						}
+					}
+				}
 				update_tray_icon(&tray, AppState::Idle).unwrap();
 			}
-		} else {
-			if auto_paste {
-				let tx = app_handle.state::<mpsc::Sender<()>>();
-				tx.send(()).map_err(|e| error!("{e}")).ok();
+			Err(e) => {
+				error!("Recording processing failed: {e:#}");
+				// todo: improve error handling
+				if e.to_string().contains("stop recording") {
+					notifs::notify(app_handle, Notif::FailedToStopRecording).ok();
+					update_tray_icon(&tray, AppState::Idle).unwrap();
+				} else {
+					notifs::notify(app_handle, Notif::TranscriptionFailed).ok();
+					update_tray_icon(&tray, AppState::Idle).unwrap();
+				}
 			}
-			update_tray_icon(&tray, AppState::Idle).unwrap();
 		}
 	});
 }
@@ -134,7 +162,10 @@ fn stop_async_task(app_handle: AppHandle, auto_paste: bool) {
 async fn stop_and_process_recording(
 	app_handle: AppHandle,
 	silent_notification: bool,
-) -> Result<()> {
+) -> Result<Option<String>> {
+	// Capture original clipboard content before overwriting
+	let original_clipboard = app_handle.clipboard().read_text().ok();
+
 	let wav_path = stop_recording().await.map_err(|s| anyhow!(s))?;
 	log::trace!("Recording stopped successfully");
 
@@ -148,5 +179,5 @@ async fn stop_and_process_recording(
 		notifs::notify(app_handle, Notif::TranscriptionReady(transcript))?;
 	}
 
-	Ok(())
+	Ok(original_clipboard)
 }
