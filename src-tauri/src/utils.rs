@@ -21,7 +21,7 @@ pub async fn transcribe_audio(wav_path: &Path) -> Result<String> {
 
 	let output = Command::new(binary)
 		.current_dir(&whisper_dir)
-		.args(["-m", "models/ggml-small.bin"])
+		.args(["-m", "models/ggml-medium.bin"])
 		.args(["-l", "auto"]) // auto language detection
 		.args(["--no-prints"]) // no verbose
 		.arg(wav_path)
