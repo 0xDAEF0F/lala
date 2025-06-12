@@ -3,7 +3,7 @@ use std::{path::Path, time::Instant};
 use tokio::process::Command;
 
 /// The directory where whisper-cli is installed relative to the home directory.
-const WHISPER_DIR: &str = "external-libraries/whisper.cpp";
+const WHISPER_DIR: &str = "mimi/erepos/whisper.cpp";
 
 /// Runs whisper-cli on the given WAV file and returns the transcription.
 ///
